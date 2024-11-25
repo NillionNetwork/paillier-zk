@@ -14,6 +14,7 @@ pub mod no_small_factor;
 pub mod paillier_affine_operation_in_range;
 pub mod paillier_blum_modulus;
 pub mod paillier_encryption_in_range;
+pub mod dlog_with_el_gamal_commitment;
 
 #[cfg(test)]
 mod curve;
