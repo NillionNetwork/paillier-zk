@@ -1,4 +1,4 @@
-//! ZK-proof for factoring of a RSA modulus. Called Пfac or Rfac in the CGGMP21
+//! ZK-proof for factoring of a RSA modulus. Called Пfac or Rfac in the CGGMP24
 //! paper.
 //!
 //! ## Description
@@ -206,13 +206,7 @@ pub mod interactive {
         let b = aux.combine(&beta, &y)?;
         let t = aux.rsa_modulo.combine(&q, &alpha, &aux.t, &r)?;
 
-        let commitment = Commitment {
-            p,
-            q,
-            a,
-            b,
-            t,
-        };
+        let commitment = Commitment { p, q, a, b, t };
         let private_commitment = PrivateCommitment {
             alpha,
             beta,
