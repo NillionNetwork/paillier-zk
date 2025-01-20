@@ -3,20 +3,20 @@
 //!
 //! //! ## Description
 //!
-//! A party P has `L = g * lambda`, `M = (g * y) (X * lambda)`, and `Y = h * y`,
-//! with g being a generator of curve `E`, h is a point of the curve 
-//! and X is a public key (and a point of the curve).
-//! P shares L, M, Y, X, and h with V and wants to prove that the 
+//! A party P has `L = g ^ lambda`, `M = (g ^ y) * (X ^ lambda)`, and `Y = h ^ y`,
+//! with g being a generator of curve `E`, h is a point on the curve
+//! and X is a public key (and a point on the curve).
+//! P shares L, M, Y, X, and h with V and wants to prove that the
 //! logarithm base h of Y is the discrete logarithm base g of the El-Gamal
 //! plaintext associated with the ciphertext (L,M) and public key X.
 //!
 //! Given:
 //! - Curve `E`
-//! - `X` - public key, point of the curve
-//! - `L = g * lambda`, `M = (g * y) (X * lambda)`, and `Y = h * y` - data to obtain proof about
+//! - `X` - public key, point on the curve
+//! - `L = g * lambda`, `M = (g ^ y) * (X ^ lambda)`, and `Y = h ^ y` - data to obtain proof about
 //!
 //! Prove:
-//! - `logarithm base h of Y= lambda`
+//! - `logarithm base h of Y= y`
 //!
 //! Disclosing only: `g`, `L`, `M`, `X`, `Y`, `h`
 //!
@@ -49,42 +49,40 @@
 //!
 //! // 1. Setup: prover prepares the public key X
 //!
-//! // X in paper is a point of the Curve E
+//! // X in paper is a point on the Curve E
 //! let x = Point::<E>::generator() * Scalar::random(&mut rng);
-//! 
-//! // h in paper is a point of the Curve E
+//!
+//! // h in paper is a point on the Curve E
 //! let h = Point::<C>::generator() * Scalar::random(&mut rng);
 //!
 //! // 2. Setup: prover prepares all plaintexts
-//! 
+//!
 //! // y in paper
-//! let y = Integer::from_rng_pm(&security.q,&mut rng);
+//! let plaintext_y = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
 //! // lambda in paper
-//! let lambda = Integer::from_rng_pm(&security.q,&mut rng);
+//! let plaintext_lambda = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
 //!
 //! // 3. Setup: prover encrypts everything on correct keys
 //!
 //! // L in paper
-//! let l = Point::<C>::generator() * lambda.to_scalar();
+//! let ciphertext_l = Point::<C>::generator() * plaintext_lambda.to_scalar();
 //! // M in paper
-//! let m = Point::<C>::generator() * y.to_scalar() + x * lambda.to_scalar();
+//! let ciphertext_m = Point::<C>::generator() * plaintext_y.to_scalar() + x * plaintext_lambda.to_scalar();
 //! // Y in paper
-//! let h_to_y = h * y.to_scalar();
+//! let ciphertext_h_to_y = h * plaintext_y.to_scalar();
 //!
-//! // 4. Prover computes a non-interactive proof that logarithm base h of Y 
+//! // 4. Prover computes a non-interactive proof that logarithm base h of Y
 //! //    and lambda are the same
 //!
 //! let data = p::Data {
-//!     key0: &key0,
-//!     l: &l,
-//!     m: &m,
+//!     l: &ciphertext_l,
+//!     m: &ciphertext_m,
 //!     x: &x,
-//!     h_to_y: &h_to_y,
-//!     h: &h,
+//!     h_to_y: &ciphertext_h_to_y,
 //! };
 //! let pdata = p::PrivateData {
-//!     y: &y,
-//!     lambda: &lambda,
+//!     y: &plaintext_y,
+//!     lambda: &plaintext_lambda,
 //! };
 //! let (commitment, proof) =
 //!     p::non_interactive::prove::<E, sha2::Sha256>(
@@ -163,7 +161,7 @@ pub struct PrivateData<'a> {
     pub lambda: &'a Integer,
 }
 
-// As described in cggmp21 at page 35
+// As described in cggmp24 at page 57
 /// Prover's first message, obtained by [`interactive::commit`]
 #[derive(Debug, Clone, udigest::Digestable)]
 #[udigest(bound = "")]
@@ -215,21 +213,13 @@ pub mod interactive {
     ) -> Result<(Commitment<C>, PrivateCommitment), Error> {
         let alpha = Integer::gen_invertible(&Integer::curve_order::<C>(), &mut rng);
         let m = Integer::gen_invertible(&Integer::curve_order::<C>(), &mut rng);
-       
 
-        let a= Point::<C>::generator() * alpha.to_scalar();
-        let enne= Point::<C>::generator() * m.to_scalar() + data.x * alpha.to_scalar();
-        let b= data.h * m.to_scalar();
+        let a = Point::<C>::generator() * alpha.to_scalar();
+        let enne = Point::<C>::generator() * m.to_scalar() + data.x * alpha.to_scalar();
+        let b = data.h * m.to_scalar();
 
-        let commitment = Commitment {
-            a,
-            cap_n: enne,
-            b,
-        };
-        let private_commitment = PrivateCommitment {
-            alpha,
-            m,
-        };
+        let commitment = Commitment { a, cap_n: enne, b };
+        let private_commitment = PrivateCommitment { alpha, m };
         Ok((commitment, private_commitment))
     }
 
@@ -241,12 +231,8 @@ pub mod interactive {
     ) -> Result<Proof, Error> {
         let z = ((&pcomm.alpha + challenge * pdata.lambda).complete())
             .modulo(&Integer::curve_order::<C>());
-        let u = ((&pcomm.m + challenge * pdata.y).complete())
-            .modulo(&Integer::curve_order::<C>());
-        Ok(Proof {
-            z,
-            u,
-        })
+        let u = ((&pcomm.m + challenge * pdata.y).complete()).modulo(&Integer::curve_order::<C>());
+        Ok(Proof { z, u })
     }
 
     /// Verify the proof
@@ -256,7 +242,7 @@ pub mod interactive {
         challenge: &Challenge,
         proof: &Proof,
     ) -> Result<(), InvalidProof> {
-        // Three equality checks and two range checks
+        // Three equality checks
         {
             let lhs = Point::<C>::generator() * proof.z.to_scalar();
             let rhs = commitment.a + data.l * challenge.to_scalar();
@@ -268,7 +254,7 @@ pub mod interactive {
             fail_if_ne(InvalidProofReason::EqualityCheck(2), lhs, rhs)?;
         }
         {
-            let lhs = data.h * proof.u.to_scalar() ;
+            let lhs = data.h * proof.u.to_scalar();
             let rhs = commitment.b + data.h_to_y * challenge.to_scalar();
             fail_if_ne(InvalidProofReason::EqualityCheck(3), lhs, rhs)?;
         }
@@ -384,11 +370,11 @@ mod test {
         let security = super::SecurityParams {
             q: (Integer::ONE << 128_u32).into(),
         };
-        let y =         Integer::from_rng_pm(&security.q,&mut rng);
-        let lambda = Integer::from_rng_pm(&security.q,&mut rng);
+        let y = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let lambda = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
         let x = Point::<C>::generator() * Scalar::random(&mut rng);
         let h = Point::<C>::generator() * Scalar::random(&mut rng);
-        
+
         let l = Point::<C>::generator() * lambda.to_scalar();
         let m = Point::<C>::generator() * y.to_scalar() + x * lambda.to_scalar();
         let h_to_y = h * y.to_scalar();
@@ -413,13 +399,13 @@ mod test {
         let security = super::SecurityParams {
             q: (Integer::ONE << 128_u32).into(),
         };
-        let y =         Integer::from_rng_pm(&security.q,&mut rng);
-        let lambda = Integer::from_rng_pm(&security.q,&mut rng);
-        let false_lambda = Integer::from_rng_pm(&security.q,&mut rng);
+        let y = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let lambda = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let false_lambda = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
 
         let x = Point::<C>::generator() * Scalar::random(&mut rng);
         let h = Point::<C>::generator() * Scalar::random(&mut rng);
-        
+
         let l = Point::<C>::generator() * lambda.to_scalar();
         let m = Point::<C>::generator() * y.to_scalar() + x * lambda.to_scalar();
         let h_to_y = h * y.to_scalar();
@@ -448,13 +434,13 @@ mod test {
         let security = super::SecurityParams {
             q: (Integer::ONE << 128_u32).into(),
         };
-        let y =         Integer::from_rng_pm(&security.q,&mut rng);
-        let lambda = Integer::from_rng_pm(&security.q,&mut rng);
-        let false_y =         Integer::from_rng_pm(&security.q,&mut rng);
+        let y = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let lambda = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let false_y = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
 
         let x = Point::<C>::generator() * Scalar::random(&mut rng);
         let h = Point::<C>::generator() * Scalar::random(&mut rng);
-        
+
         let l = Point::<C>::generator() * lambda.to_scalar();
         let m = Point::<C>::generator() * y.to_scalar() + x * lambda.to_scalar();
         let h_to_y = h * y.to_scalar();
@@ -476,7 +462,6 @@ mod test {
             e => panic!("proof should not fail with {e:?}"),
         }
     }
-
 
     #[test]
     fn passing_p256() {
@@ -505,5 +490,4 @@ mod test {
     fn failing_check_2_million() {
         failing_check_y_::<crate::curve::C, sha2::Sha256>()
     }
-
 }
