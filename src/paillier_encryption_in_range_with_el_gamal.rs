@@ -51,17 +51,17 @@
 //!
 //! // 2. Setup: prover has some plaintext and encrypts it
 //!
-//! let plaintext = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
+//! let plaintext = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
 //! let (ciphertext, nonce) = key.encrypt_with_random(&mut rng, &plaintext)?;
-//! 
-//! let a = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
-//! let b = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
+//!
+//! let a = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+//! let b = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
 //!
 //! let g_to_a = Point::<E>::generator() * a.to_scalar();
 //! let g_to_b = Point::<E>::generator() * b.to_scalar();
 //! let exponent = (&a * &b + &plaintext).complete();
 //! let g_to_ab_plus_x = Point::<E>::generator() * exponent.to_scalar();
-//! 
+//!
 //! // 3. Prover computes a non-interactive proof that plaintext is at most 1024 bits:
 //!
 //! let data = p::Data { key, ciphertext: &ciphertext , g_to_a: &g_to_a,
@@ -112,10 +112,9 @@ use serde::{Deserialize, Serialize};
 pub use crate::common::Aux;
 pub use crate::common::InvalidProof;
 
-
 /// Security parameters for proof. Choosing the values is a tradeoff between
 /// speed and chance of rejecting a valid proof or accepting an invalid proof
-#[derive(Debug, Clone,udigest::Digestable)]
+#[derive(Debug, Clone, udigest::Digestable)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SecurityParams {
     /// l in paper, security parameter for bit size of plaintext: it needs to
@@ -138,11 +137,11 @@ pub struct Data<'a, C: Curve> {
     /// C in paper
     #[udigest(as = &crate::common::encoding::Integer)]
     pub ciphertext: &'a Ciphertext,
-    /// A=g^a in paper 
+    /// A=g^a in paper
     pub g_to_a: &'a Point<C>,
-    /// B=g^b in paper 
+    /// B=g^b in paper
     pub g_to_b: &'a Point<C>,
-    /// X=g^{ab+x} in paper 
+    /// X=g^{ab+x} in paper
     pub g_to_ab_plus_x: &'a Point<C>,
 }
 
@@ -211,7 +210,8 @@ pub mod interactive {
     use rug::{Complete, Integer};
 
     use crate::{
-        common::{fail_if, fail_if_ne, InvalidProofReason}, BadExponent, Error
+        common::{fail_if, fail_if_ne, InvalidProofReason},
+        BadExponent, Error,
     };
 
     use crate::common::{IntegerExt, InvalidProof};
@@ -242,12 +242,11 @@ pub mod interactive {
         let s = aux.combine(pdata.plaintext, &mu)?;
         let t = aux.combine(&alpha, &gamma)?;
         let d = data.key.encrypt_with(&alpha, &r)?;
-        let y = data.g_to_a * beta.to_scalar() +  Point::<C>::generator() * alpha.to_scalar();
+        let y = data.g_to_a * beta.to_scalar() + Point::<C>::generator() * alpha.to_scalar();
         let z = Point::<C>::generator() * beta.to_scalar();
 
-
         Ok((
-            Commitment { s, t ,d, y, z },
+            Commitment { s, t, d, y, z },
             PrivateCommitment {
                 alpha,
                 mu,
@@ -266,7 +265,8 @@ pub mod interactive {
         challenge: &Challenge,
     ) -> Result<Proof, Error> {
         let z1 = (&private_commitment.alpha + (challenge * pdata.plaintext)).complete();
-        let w = ((&private_commitment.beta + (challenge * pdata.b)).complete()).modulo(&Integer::curve_order::<C>());
+        let w = ((&private_commitment.beta + (challenge * pdata.b)).complete())
+            .modulo(&Integer::curve_order::<C>());
         let nonce_to_challenge_mod_n: Integer = pdata
             .nonce
             .pow_mod_ref(challenge, data.key.n())
@@ -274,7 +274,7 @@ pub mod interactive {
             .into();
         let z2 = (&private_commitment.r * nonce_to_challenge_mod_n).modulo(data.key.n());
         let z3 = (&private_commitment.gamma + (challenge * &private_commitment.mu)).complete();
-        Ok(Proof { z1, z2, z3 , w})
+        Ok(Proof { z1, z2, z3, w })
     }
 
     /// Verify the proof
@@ -286,13 +286,6 @@ pub mod interactive {
         challenge: &Challenge,
         proof: &Proof,
     ) -> Result<(), InvalidProof> {
-        {
-            fail_if_ne(
-                InvalidProofReason::EqualityCheck(1),
-                &data.ciphertext.gcd_ref(data.key.n()).complete(),
-                Integer::ONE,
-            )?;
-        }
         {
             let lhs = data
                 .key
@@ -307,32 +300,28 @@ pub mod interactive {
                     .oadd(&commitment.d, &e_at_c)
                     .map_err(|_| InvalidProofReason::PaillierOp)?
             };
-            fail_if_ne(InvalidProofReason::EqualityCheck(2), lhs, rhs)?;
+            fail_if_ne(InvalidProofReason::EqualityCheck(1), lhs, rhs)?;
         }
         {
-            let lhs = data.g_to_a * proof.w.to_scalar() + Point::<C>::generator() * proof.z1.to_scalar();
+            let lhs =
+                data.g_to_a * proof.w.to_scalar() + Point::<C>::generator() * proof.z1.to_scalar();
             let rhs = commitment.y + data.g_to_ab_plus_x * challenge.to_scalar();
-            fail_if_ne(InvalidProofReason::EqualityCheck(3), lhs, rhs)?;
+            fail_if_ne(InvalidProofReason::EqualityCheck(2), lhs, rhs)?;
         }
         {
             let lhs = Point::<C>::generator() * proof.w.to_scalar();
             let rhs = commitment.z + data.g_to_b * challenge.to_scalar();
-            fail_if_ne(InvalidProofReason::EqualityCheck(4), lhs, rhs)?;
+            fail_if_ne(InvalidProofReason::EqualityCheck(3), lhs, rhs)?;
         }
         {
             let lhs = aux.combine(&proof.z1, &proof.z3)?;
-            // let s_to_e: Integer = commitment
-            //     .s
-            //     .pow_mod_ref(challenge, &aux.rsa_modulo)
-            //     .ok_or(BadExponent::undefined())?
-            //     .into();
             let s_to_e = aux.pow_mod(&commitment.s, challenge)?;
             let rhs = (&commitment.t * s_to_e).modulo(&aux.rsa_modulo);
-            fail_if_ne(InvalidProofReason::EqualityCheck(5), lhs, rhs)?;
+            fail_if_ne(InvalidProofReason::EqualityCheck(4), lhs, rhs)?;
         }
 
         fail_if(
-            InvalidProofReason::RangeCheck(6),
+            InvalidProofReason::RangeCheck(5),
             proof
                 .z1
                 .is_in_pm(&(Integer::ONE << (security.l + security.epsilon)).complete()),
@@ -372,7 +361,7 @@ pub mod non_interactive {
         rng: &mut impl rand_core::RngCore,
     ) -> Result<(Commitment<C>, Proof), Error> {
         let (comm, pcomm) = super::interactive::commit(aux, data, pdata, security, rng)?;
-        let challenge = challenge::<C,D>(shared_state, aux, data, &comm, security);
+        let challenge = challenge::<C, D>(shared_state, aux, data, &comm, security);
         let proof = super::interactive::prove(data, pdata, &pcomm, &challenge)?;
         Ok((comm, proof))
     }
@@ -386,7 +375,7 @@ pub mod non_interactive {
         security: &SecurityParams,
         proof: &Proof,
     ) -> Result<(), InvalidProof> {
-        let challenge = challenge::<C,D>(shared_state, aux, data, commitment, security);
+        let challenge = challenge::<C, D>(shared_state, aux, data, commitment, security);
         super::interactive::verify(aux, data, commitment, security, &challenge, proof)
     }
 
@@ -451,9 +440,9 @@ mod test {
 
         let shared_state = "shared state";
         let (commitment, proof) =
-            super::non_interactive::prove::<C,D>(&shared_state, &aux, data, pdata, &security, rng)
+            super::non_interactive::prove::<C, D>(&shared_state, &aux, data, pdata, &security, rng)
                 .unwrap();
-        super::non_interactive::verify::<C,D>(
+        super::non_interactive::verify::<C, D>(
             &shared_state,
             &aux,
             data,
@@ -470,10 +459,10 @@ mod test {
             epsilon: 300,
             q: (Integer::ONE << 128_u32).into(),
         };
-        let plaintext = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
-        let a = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
-        let b = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
-        run_with::<C, D>(&mut rng, security, plaintext,a, b).expect("proof failed");
+        let plaintext = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let a = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let b = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        run_with::<C, D>(&mut rng, security, plaintext, a, b).expect("proof failed");
     }
 
     fn failing_test<C: Curve, D: Digest>() {
@@ -484,15 +473,15 @@ mod test {
             q: (Integer::ONE << 128_u32).complete(),
         };
         let plaintext = (Integer::ONE << (security.l + security.epsilon)).complete() + 1;
-        let a = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
-        let b = Integer::from_rng_pm(&(Integer::ONE << security.l).complete(), &mut rng);
-        let r = run_with::<C, D>(&mut rng, security, plaintext, a,b).expect_err("proof should not pass");
+        let a = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let b = Integer::from_rng_pm(&Integer::curve_order::<C>(), &mut rng);
+        let r = run_with::<C, D>(&mut rng, security, plaintext, a, b)
+            .expect_err("proof should not pass");
         match r.reason() {
-            InvalidProofReason::RangeCheck(6) => (),
+            InvalidProofReason::RangeCheck(5) => (),
             e => panic!("proof should not fail with: {e:?}"),
         }
     }
-
 
     #[test]
     fn passing_p256() {
